@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "sourceMap": true,
+    "strict": true,
+    "allowSyntheticDefaultImports":true,
+    "types": ["node"]
+  },
+  "types": ["node"]
+}

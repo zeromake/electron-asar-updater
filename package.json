@@ -1,0 +1,24 @@
+{
+  "name": "@zeromake/electron-asar-updater",
+  "version": "1.0.0",
+  "description": "",
+  "main": "dist/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/zeromake/electron-asar-updater.git"
+  },
+  "author": "zeromake <a390720046@gmail.com>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/zeromake/electron-asar-updater/issues"
+  },
+  "homepage": "https://github.com/zeromake/electron-asar-updater#readme",
+  "devDependencies": {
+    "@types/node": "^18.16.1",
+    "typescript": "^5.0.4",
+    "vite": "^4.3.2"
+  }
+}
