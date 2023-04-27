@@ -1,6 +1,6 @@
 {
   "name": "@zeromake/electron-asar-updater",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "electron's asar updater, 0 dependencies",
   "main": "dist/index.cjs",
   "module": "dist/index.mjs",
