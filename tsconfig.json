@@ -4,8 +4,8 @@
     "module": "esnext",
     "sourceMap": true,
     "strict": true,
-    "allowSyntheticDefaultImports":true,
     "types": ["node"]
   },
-  "types": ["node"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.test.ts"]
 }

@@ -1,10 +1,14 @@
 {
   "name": "@zeromake/electron-asar-updater",
   "version": "1.0.0",
-  "description": "",
-  "main": "dist/index.js",
+  "description": "electron's asar updater, 0 dependencies",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "npx vite build && npx tsc -p ./tsconfig.release.json",
+    "format": "npx prettier --write \"src/**/*.{js,mjs,cjs,ts,mts,cts,jsx,tsx,vue,json}\"",
+    "typecheck:main": "tsc --noEmit -p tsconfig.json"
   },
   "repository": {
     "type": "git",
@@ -20,5 +24,10 @@
     "@types/node": "^18.16.1",
     "typescript": "^5.0.4",
     "vite": "^4.3.2"
-  }
+  },
+  "keywords": [
+    "electron",
+    "asar",
+    "updater"
+  ]
 }

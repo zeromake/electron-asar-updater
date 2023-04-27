@@ -1,0 +1,13 @@
+src
+node_modules
+.github
+.babelrc
+.eslintrc
+.eslintignore
+.gitignore
+.prettierrc
+.prettierignore
+.npmrc
+tsconfig.json
+tsconfig.release.json
+yarn.lock
