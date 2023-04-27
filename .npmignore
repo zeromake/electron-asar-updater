@@ -8,6 +8,8 @@ node_modules
 .prettierrc
 .prettierignore
 .npmrc
+.editorconfig
 tsconfig.json
 tsconfig.release.json
 yarn.lock
+vite.config.mjs

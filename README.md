@@ -11,7 +11,12 @@ import {app, BrowserWindow} from 'electron';
 import {join} from 'node:path';
 import {execPath} from 'node:process';
 
-const asarUpdater = new AsarUpdater(import.meta.env.VITE_UPDATER_URL, app.getAppPath());
+import {AsarUpdater} from '@zeromake/electron-asar-updater';
+
+const asarUpdater = new AsarUpdater({
+  version_url: import.meta.env.VITE_UPDATER_URL,
+  resource_path: app.getAppPath(),
+});
 
 async function upgradeAsarFile(relaunch: boolean) {
     // 有更新文件就进行替换逻辑
