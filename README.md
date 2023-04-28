@@ -21,8 +21,9 @@ const asarUpdater = new AsarUpdater({
 async function upgradeAsarFile(relaunch: boolean) {
     // 有更新文件就进行替换逻辑
     if (await asarUpdater.hasUpgraded()) {
-        await asarUpdater.upgrade(relaunch ? execPath : undefined);
+        await asarUpdater.upgrade(relaunch);
         if (relaunch && process.platform !== 'win32') {
+            // 非 windows 平台都是可以直接替换文件的，直接使用 electron 的 app.relaunch()
             app.relaunch();
         }
     }
@@ -41,8 +42,10 @@ async function createWindow() {
     if (!import.meta.env.DEV) {
         // 主窗口关闭时尝试替换 asar 文件
         browserWindow.on('close', function(event) {
+            // 一定要阻止事件否则会导致文件替换不了，应用就退出了
             event.preventDefault();
-            upgradeAsarFile(true);
+            // 手动关闭，不重启
+            upgradeAsarFile(false);
         });
     }
 
@@ -54,6 +57,7 @@ async function createWindow() {
                 // TODO 通知进行更新
                 if (await asarUpdater.download(asarInfo)) {
                     // TODO 通知需要重启，用户确认
+                    // 替换文件，windows 下会启动一个 vbs 脚本进程尝试不停的替换，必须要退出该应用才可以正确的替换
                     await upgradeAsarFile(true);
                 } else {
                     // TODO 通知下载更新文件失败

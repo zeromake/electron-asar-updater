@@ -2,10 +2,11 @@ import {spawn} from 'node:child_process';
 import {platform} from 'node:process';
 import {join, relative, resolve, sep} from 'node:path';
 import {promisify} from 'node:util';
-import {Stream, Writable} from 'node:stream';
+import {Stream, Writable, Transform, TransformCallback} from 'node:stream';
 import {createGunzip} from 'node:zlib';
 import {request as httpsRequest} from 'node:https';
 import {request as httpRequest} from 'node:http';
+import {Hash, HashOptions, createHash} from 'node:crypto';
 import {rm, createWriteStream, access, rename, writeFile, readFile} from 'fs';
 
 const rmPromisify = promisify(rm);
@@ -25,6 +26,26 @@ async function exists(p: string, mode?: number) {
     return true;
   } catch (err) {
     return false;
+  }
+}
+
+class HashTransform extends Transform {
+  #hash: Hash;
+  #result: string | null = null;
+  constructor(algorithm: string, options?: HashOptions) {
+    super();
+    this.#hash = createHash(algorithm, options);
+  }
+  _transform(chunk: any, _: BufferEncoding, next: TransformCallback) {
+    this.#hash.update(chunk);
+    next(null, chunk);
+  }
+  _flush(done: TransformCallback) {
+    this.#result = this.#hash.digest('hex').toLowerCase();
+    done();
+  }
+  get hash() {
+    return this.#result;
   }
 }
 
@@ -59,26 +80,33 @@ function pipe(stream: Stream, ...streams: Writable[]): Promise<void> {
   });
 }
 
-const headers = {'user-agent': '@zeromake/electron-asar-updater/1.0.0'};
+const headers = {'user-agent': '@zeromake/electron-asar-updater/1.0.0', accept: '*/*'};
 
 function http_get_json<T>(url: string): Promise<T> {
   return new Promise((resolve, reject) => {
     const req = (url.startsWith('https://') ? httpsRequest : httpRequest)(
       url,
-      {headers, timeout: 5000, method: 'GET'},
+      {
+        headers: {
+          ...headers,
+          accept: 'application/json',
+        },
+        timeout: 5000,
+        method: 'GET',
+      },
       res => {
         if (res.statusCode !== 200) {
           res.resume();
           return reject(new Error(`Failed to fetch ${url}: ${res.statusCode}`));
         }
         res.setEncoding('utf8');
-        let data = '';
+        const data: string[] = [];
         res.on('data', chunk => {
-          data += chunk;
+          data.push(chunk);
         });
         res.on('end', () => {
           try {
-            resolve(JSON.parse(data));
+            resolve(JSON.parse(data.join()));
           } catch (err) {
             reject(err);
           }
@@ -93,7 +121,13 @@ function http_get_stream(url: string): Promise<Stream> {
   return new Promise((resolve, reject) => {
     const req = (url.startsWith('https://') ? httpsRequest : httpRequest)(
       url,
-      {headers, method: 'GET'},
+      {
+        headers: {
+          ...headers,
+          accept: 'application/octet-stream',
+        },
+        method: 'GET',
+      },
       res => {
         if (res.statusCode !== 200) {
           res.resume();
@@ -108,9 +142,6 @@ function http_get_stream(url: string): Promise<Stream> {
 
 async function generateWinScript(resourcePath: string, scriptPath: string, execPath?: string) {
   let relaunch = false;
-  if (execPath) {
-    execPath = relative(resolve('.'), execPath);
-  }
   if (execPath && (await exists(join('.', execPath)))) {
     relaunch = true;
   }
@@ -118,6 +149,8 @@ async function generateWinScript(resourcePath: string, scriptPath: string, execP
     scriptPath,
     `
 On Error Resume Next
+Dim relaunch
+relaunch = wscript.arguments(0)
 Set wshShell = WScript.CreateObject("WScript.Shell")
 Set fsObject = WScript.CreateObject("Scripting.FileSystemObject")
 updaterPath = "${join(resourcePath, asarNextFileName)}"
@@ -132,7 +165,9 @@ WScript.Sleep 250
 fsObject.MoveFile updaterPath,destPath
 WScript.Sleep 250
 
-${relaunch ? 'wshShell.Run ".\\' + execPath + '"' : ''}
+If relaunch = "1" Then
+  ${relaunch ? 'wshShell.Run ".\\' + execPath + '"' : ''}
+End If
 `,
     {encoding: 'utf8'},
   );
@@ -152,7 +187,7 @@ export interface AsarInfoResponse {
    */
   description?: string;
   /**
-   * 下载的文件需要进行校验，仅支持 gzip 解压后的文件校验
+   * 下载的文件需要进行校验，仅支持 sha256, md5 校验，根据 hash 长度切换校验算法 32 = MD5，64 = SHA256
    */
   checksum?: string;
 }
@@ -166,6 +201,11 @@ export interface AsarUpdaterOptions {
    * asar 所在目录
    */
   resource_path: string;
+
+  /**
+   * electron 的二进制可执行文件路径
+   */
+  exec_path?: string;
 }
 
 export class AsarUpdater {
@@ -184,6 +224,7 @@ export class AsarUpdater {
   private readonly asarTargetPath: string;
   private readonly asarVersionPath: string;
   private readonly resourcePath: string;
+  private readonly execPath?: string;
 
   /**
    * @param options 选项
@@ -200,6 +241,9 @@ export class AsarUpdater {
     this.asarTargetPath = join(this.appPathFolder, asarTargetFileName);
     this.asarVersionPath = join(this.appPathFolder, asarVersionFileName);
     this.resourcePath = relative(resolve('.'), this.appPathFolder);
+    if (options.exec_path) {
+      this.execPath = relative(resolve('.'), options.exec_path);
+    }
   }
 
   /**
@@ -245,22 +289,36 @@ export class AsarUpdater {
    * @param asarInfo asar信息
    */
   public async download(asarInfo: Readonly<AsarInfoResponse>) {
-    for (const file of [this.asarSwapPath, this.asarVersionPath]) {
+    // 清理掉上一次的更新文件
+    for (const file of [this.asarNextPath, this.asarSwapPath, this.asarVersionPath]) {
       if (await exists(file)) {
         await rmPromisify(file);
       }
     }
-    const {download_url} = asarInfo;
+    const {download_url, checksum} = asarInfo;
     const inStream = await http_get_stream(download_url);
     const isGzip = download_url.endsWith('.gz') || download_url.endsWith('.gzip');
     // 使用交换文件路径防止出现文件中断导致文件损坏
     const outStream = createWriteStream(this.asarSwapPath, {encoding: 'binary', flags: 'w'});
-    if (isGzip) {
-      await pipe(inStream, createGunzip(), outStream);
-    } else {
-      await pipe(inStream, outStream);
+    const outputStreams = [];
+    let hashTransform: HashTransform | null = null;
+    // 使用流来处理 checksum
+    if (checksum) {
+      hashTransform = new HashTransform(checksum.length === 32 ? 'md5' : 'sha256');
+      outputStreams.push(hashTransform);
     }
-    // Todo: 做文件校验
+    // 如果是 gzip 还需要解压
+    if (isGzip) {
+      outputStreams.push(createGunzip());
+    }
+    outputStreams.push(outStream);
+    await pipe(inStream, ...outputStreams);
+    if (hashTransform) {
+      const _checksum = checksum!.toLowerCase();
+      if (hashTransform.hash !== _checksum) {
+        throw new Error(`checksum remote(${checksum}) != local(${hashTransform.hash})`);
+      }
+    }
     // 重命名文件
     await renamePromisify(this.asarSwapPath, this.asarNextPath);
     // 写入这次更新信息
@@ -286,11 +344,11 @@ export class AsarUpdater {
    * 替换 asar 文件
    * @param execPath win32 传入可以触发重启(其它平台请自行使用 app.relaunch)
    */
-  public async upgrade(execPath?: string): Promise<void> {
+  public async upgrade(relaunch: boolean = false): Promise<void> {
     if (platform === 'win32') {
       const updaterScriptPath = join(this.resourcePath, 'updater.vbs');
-      await generateWinScript(this.resourcePath, updaterScriptPath, execPath);
-      spawn('cmd', ['/s', '/c', 'wscript', `"${updaterScriptPath}"`], {
+      await generateWinScript(this.resourcePath, updaterScriptPath, this.execPath);
+      spawn('cmd', ['/s', '/c', 'wscript', `"${updaterScriptPath}"`, `"${relaunch ? '1' : '0'}"`], {
         detached: true,
         windowsVerbatimArguments: true,
         stdio: 'ignore',
